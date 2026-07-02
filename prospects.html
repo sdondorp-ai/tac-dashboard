@@ -1,0 +1,637 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Prospects & CRM — TAC Dashboard</title>
+<link rel="manifest" href="manifest.json">
+<link rel="stylesheet" href="shared.css">
+<style>
+.profile-card { background: var(--surface); border: 0.5px solid var(--border); border-radius: 12px; padding: 16px; margin-bottom: 12px; }
+.profile-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.profile-name { font-size: 14px; font-weight: 500; }
+.profile-meta { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+.profile-section { margin-top: 12px; }
+.profile-section-title { font-size: 11px; font-weight: 500; color: var(--text-muted); text-transform: uppercase; letter-spacing: .05em; margin-bottom: 6px; }
+.suggestion-box { background: var(--amber-bg); border: 0.5px solid var(--amber); border-radius: var(--radius); padding: 8px 12px; font-size: 12px; color: var(--amber-text); margin-top: 8px; }
+.suggestion-box strong { display: block; margin-bottom: 3px; }
+.dup-badge { font-size: 10px; padding: 2px 7px; border-radius: 4px; background: var(--amber-bg); color: var(--amber-text); font-weight: 500; }
+.csv-preview { max-height: 180px; overflow-y: auto; }
+.import-result { padding: 10px 14px; border-radius: var(--radius); font-size: 12px; margin-top: 10px; }
+.import-ok { background: var(--green-bg); color: var(--green-text); }
+.import-warn { background: var(--amber-bg); color: var(--amber-text); }
+.filter-bar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+.filter-bar select, .filter-bar input[type=text] { width: auto; min-width: 140px; }
+.prospect-actions { display: flex; gap: 6px; }
+.modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 200; align-items: center; justify-content: center; }
+.modal-overlay.open { display: flex; }
+.modal { background: var(--surface); border-radius: 14px; padding: 24px; max-width: 640px; width: 90%; max-height: 90vh; overflow-y: auto; box-shadow: 0 8px 32px rgba(0,0,0,0.18); }
+.modal-title { font-size: 16px; font-weight: 500; margin-bottom: 16px; }
+.modal-footer { display: flex; gap: 8px; justify-content: flex-end; margin-top: 20px; }
+</style>
+</head>
+<body>
+
+<aside class="sidebar">
+  <div class="sidebar-logo">
+    <div class="logo-main">TAC Media</div>
+    <div class="logo-sub">Performance Dashboard</div>
+  </div>
+  <nav id="mainNav"></nav>
+  <div class="sidebar-bottom">v2.0 · Prospects & CRM</div>
+</aside>
+
+<div class="main-content">
+<div class="page-header">
+  <span class="page-title">Prospects & CRM</span>
+  <div class="page-actions">
+    <button class="btn btn-sm" onclick="exportCSV()">↓ Export CSV</button>
+    <button class="btn btn-primary btn-sm" onclick="openModal('advertiser')">+ Adverteerder</button>
+    <button class="btn btn-primary btn-sm" onclick="openModal('publisher')">+ Publisher</button>
+  </div>
+</div>
+
+<div class="content">
+
+  <!-- IMPORT -->
+  <div class="section-label">CSV Import</div>
+  <div class="card">
+    <div class="card-title">Importeer prospects via CSV</div>
+    <div class="grid2">
+      <div>
+        <p style="font-size:12px;color:var(--text-sec);margin-bottom:10px">
+          <strong>Adverteerders CSV-formaat:</strong><br>
+          <code style="font-size:11px;background:var(--surface2);padding:2px 6px;border-radius:4px">naam,website,email,land,vertical,model,opmerking</code>
+        </p>
+        <div class="upload-zone" onclick="document.getElementById('csvAdv').click()">
+          <div style="font-size:22px;margin-bottom:6px">📋</div>
+          <div style="font-size:13px;font-weight:500">Sleep adverteerders CSV hier</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:4px">of klik om te kiezen</div>
+        </div>
+        <input type="file" id="csvAdv" accept=".csv" onchange="importCSV(this,'advertiser')">
+        <div id="advImportResult"></div>
+      </div>
+      <div>
+        <p style="font-size:12px;color:var(--text-sec);margin-bottom:10px">
+          <strong>Publishers CSV-formaat:</strong><br>
+          <code style="font-size:11px;background:var(--surface2);padding:2px 6px;border-radius:4px">naam,website,email,landen,verticals,model,opmerking</code>
+        </p>
+        <div class="upload-zone" onclick="document.getElementById('csvPub').click()">
+          <div style="font-size:22px;margin-bottom:6px">📋</div>
+          <div style="font-size:11px;color:var(--text-muted)">landen = kommagescheiden bijv. NL,DE,UK</div>
+          <div style="font-size:13px;font-weight:500;margin-top:6px">Sleep publishers CSV hier</div>
+        </div>
+        <input type="file" id="csvPub" accept=".csv" onchange="importCSV(this,'publisher')">
+        <div id="pubImportResult"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ADVERTISER PROSPECTS -->
+  <div class="section-label">Adverteerder prospects</div>
+  <div class="filter-bar">
+    <input type="text" id="advSearch" placeholder="Zoeken..." oninput="renderAdvertisers()" style="max-width:200px">
+    <select id="advVertFilter" onchange="renderAdvertisers()">
+      <option value="">Alle verticals</option>
+      <option>iGaming</option><option>Leadgen</option><option>Dating</option>
+      <option>Finance</option><option>eCommerce</option><option>Health</option><option>Software</option><option>Other</option>
+    </select>
+    <select id="advStatusFilter" onchange="renderAdvertisers()">
+      <option value="">Alle statussen</option>
+      <option>Prospect</option><option>Contacted</option><option>Active</option><option>Declined</option>
+    </select>
+  </div>
+  <div class="card" style="padding:0">
+    <div class="tw">
+      <table>
+        <thead><tr>
+          <th>Naam</th><th>Website</th><th>Email</th><th>Land</th><th>Vertical</th>
+          <th>Model</th><th>Status</th><th>Opmerking</th><th>Acties</th>
+        </tr></thead>
+        <tbody id="advTable"><tr><td colspan="9" class="empty-state">Nog geen adverteerders. Voeg toe of importeer via CSV.</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- PUBLISHER PROSPECTS -->
+  <div class="section-label">Publisher prospects & profielen</div>
+  <div class="filter-bar">
+    <input type="text" id="pubSearch" placeholder="Zoeken..." oninput="renderPublishers()">
+    <select id="pubGeoFilter" onchange="renderPublishers()">
+      <option value="">Alle geo's</option>
+    </select>
+    <select id="pubVertFilter2" onchange="renderPublishers()">
+      <option value="">Alle verticals</option>
+      <option>iGaming</option><option>Leadgen</option><option>Dating</option>
+      <option>Finance</option><option>eCommerce</option><option>Health</option><option>Software</option><option>Other</option>
+    </select>
+    <select id="pubModelFilter" onchange="renderPublishers()">
+      <option value="">Alle modellen</option>
+      <option>CPA</option><option>CPL</option><option>CPM</option><option>CPS</option>
+    </select>
+  </div>
+  <div id="publisherCards"><div class="empty-state">Nog geen publishers. Voeg toe of importeer via CSV.</div></div>
+
+</div>
+</div>
+
+<!-- ADD/EDIT MODAL -->
+<div class="modal-overlay" id="modalOverlay" onclick="if(event.target===this)closeModal()">
+<div class="modal">
+  <div class="modal-title" id="modalTitle">Prospect toevoegen</div>
+
+  <input type="hidden" id="modalType">
+  <input type="hidden" id="modalEditId">
+
+  <div id="modalCommon">
+    <div class="form-row">
+      <div class="form-group"><label>Naam *</label><input type="text" id="fName" placeholder="Bedrijfsnaam"></div>
+      <div class="form-group"><label>Website</label><input type="url" id="fWebsite" placeholder="https://"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Email</label><input type="email" id="fEmail" placeholder="contact@bedrijf.com"></div>
+      <div class="form-group"><label>Status</label>
+        <select id="fStatus"><option>Prospect</option><option>Contacted</option><option>Active</option><option>Declined</option></select>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Pricing model</label>
+        <select id="fModel"><option value="">— selecteer —</option><option>CPA</option><option>CPL</option><option>CPM</option><option>CPS</option><option>Hybrid</option></select>
+      </div>
+      <div class="form-group"><label>Opmerking</label><input type="text" id="fNote" placeholder="Vrij veld"></div>
+    </div>
+  </div>
+
+  <!-- ADVERTISER SPECIFIC -->
+  <div id="modalAdvFields">
+    <div class="form-row">
+      <div class="form-group"><label>Land (adverteerder)</label>
+        <select id="fAdvGeo"><option value="">— selecteer —</option></select>
+      </div>
+      <div class="form-group"><label>Vertical</label>
+        <select id="fAdvVert"><option value="">— selecteer —</option>
+          <option>iGaming</option><option>Leadgen</option><option>Dating</option>
+          <option>Finance</option><option>eCommerce</option><option>Health</option><option>Software</option><option>Other</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-group" style="margin-bottom:10px"><label>Target geo's voor campagne</label>
+      <div class="chip-group" id="advGeoChips"></div>
+    </div>
+  </div>
+
+  <!-- PUBLISHER SPECIFIC -->
+  <div id="modalPubFields" style="display:none">
+    <div class="section-label" style="margin-top:8px">Publisher profiel</div>
+
+    <div class="form-group" style="margin-bottom:10px"><label>Actieve geo's <span style="color:var(--text-muted)">(aanvinken)</span></label>
+      <div class="chip-group" id="pubGeoChips"></div>
+    </div>
+    <div class="form-group" style="margin-bottom:10px"><label>Verticals</label>
+      <div class="chip-group" id="pubVertChips"></div>
+    </div>
+    <div class="form-group" style="margin-bottom:10px"><label>Traffic types</label>
+      <div class="chip-group" id="pubTrafficChips"></div>
+    </div>
+
+    <div style="background:var(--amber-bg);border:0.5px solid var(--amber);border-radius:var(--radius);padding:10px 12px;font-size:12px;color:var(--amber-text);margin:10px 0">
+      <strong style="display:block;margin-bottom:4px">💡 Targeting suggesties van TAC</strong>
+      <div id="targetingSuggestions">Vul geo's en verticals in voor automatische suggesties.</div>
+    </div>
+
+    <div class="form-group" style="margin-bottom:10px"><label>Eigen targeting notities</label>
+      <textarea id="fTargetingNotes" rows="2" placeholder="Bijv. focus op 25–45 jarige mannen, mobile-first, incentive traffic..."></textarea>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Min. payout verwachting</label><input type="text" id="fMinPayout" placeholder="bijv. €20 CPA"></div>
+      <div class="form-group"><label>Volume/mnd (geschat)</label><input type="text" id="fVolume" placeholder="bijv. 500–1000 conv"></div>
+    </div>
+  </div>
+
+  <div class="modal-footer">
+    <button class="btn" onclick="closeModal()">Annuleren</button>
+    <button class="btn btn-primary" onclick="saveProspect()">Opslaan</button>
+  </div>
+</div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="nav.js"></script>
+<script>
+renderNav('prospects');
+
+const GEOS = ['NL','DE','UK','BR','ES','IT','FR','AU','CA','US','PT','BE','MX','AT','CH','SE','NO','PL','DK','FI','NZ','IE','CZ','HU','AR','CL','GR','CO','ZA','IN'];
+const VERTICALS = ['iGaming','Leadgen','Dating','Finance','eCommerce','Health','Software','Other'];
+const TRAFFIC_TYPES = ['Email','Social','SEO','SEM/PPC','Native','Display','Push','Influencer','Incentive','SMS','Content','Programmatic'];
+
+// State
+let advertisers = loadData('advertisers') || [];
+let publishers = loadData('publishers') || [];
+
+function loadData(key) {
+  try { return JSON.parse(localStorage.getItem('tac_crm_' + key) || 'null'); } catch { return null; }
+}
+function saveData(key, data) {
+  try { localStorage.setItem('tac_crm_' + key, JSON.stringify(data)); } catch(e) { showToast('Opslag vol — verwijder wat data'); }
+}
+function showToast(msg, dur=2500) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), dur);
+}
+
+// Deduplication
+function isDuplicate(arr, name, website, excludeId=null) {
+  const normName = name.toLowerCase().trim();
+  const normWeb = (website||'').toLowerCase().replace(/^https?:\/\/(www\.)?/,'').replace(/\/$/,'');
+  return arr.some(r => {
+    if (r.id === excludeId) return false;
+    const rName = r.name.toLowerCase().trim();
+    const rWeb = (r.website||'').toLowerCase().replace(/^https?:\/\/(www\.)?/,'').replace(/\/$/,'');
+    return rName === normName || (normWeb && rWeb && rWeb === normWeb);
+  });
+}
+
+function generateId() { return Date.now().toString(36) + Math.random().toString(36).slice(2,6); }
+
+// CSV IMPORT
+function importCSV(input, type) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    const lines = e.target.result.split('\n').map(l => l.trim()).filter(Boolean);
+    if (lines.length < 2) { showToast('CSV lijkt leeg'); return; }
+
+    let added = 0, dupes = 0, errors = 0;
+    const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+
+    for (let i = 1; i < lines.length; i++) {
+      const cols = parseCSVLine(lines[i]);
+      if (cols.length < 1) continue;
+
+      const get = (keys) => {
+        for (const k of keys) {
+          const idx = headers.indexOf(k);
+          if (idx >= 0 && cols[idx]) return cols[idx].trim();
+        }
+        return '';
+      };
+
+      const name = get(['naam','name','company','bedrijf']) || cols[0]?.trim();
+      if (!name) { errors++; continue; }
+
+      if (type === 'advertiser') {
+        if (isDuplicate(advertisers, name, get(['website','url','site']))) { dupes++; continue; }
+        advertisers.push({
+          id: generateId(), type: 'advertiser', name,
+          website: get(['website','url','site']),
+          email: get(['email','mail']),
+          country: get(['land','country','geo']),
+          vertical: get(['vertical','niche','categorie']),
+          model: get(['model','pricing']),
+          status: get(['status']) || 'Prospect',
+          note: get(['opmerking','note','notes','opmerkingen']),
+          geos: get(['geos','landen','countries']) ? get(['geos','landen','countries']).split(/[;|]/).map(g=>g.trim()) : [],
+          created: Date.now()
+        });
+        added++;
+      } else {
+        const landen = get(['landen','countries','geos','land','country']);
+        if (isDuplicate(publishers, name, get(['website','url','site']))) { dupes++; continue; }
+        publishers.push({
+          id: generateId(), type: 'publisher', name,
+          website: get(['website','url','site']),
+          email: get(['email','mail']),
+          geos: landen ? landen.split(/[,;|]/).map(g=>g.trim().toUpperCase()) : [],
+          verticals: get(['verticals','vertical','niche']) ? get(['verticals','vertical','niche']).split(/[,;|]/).map(v=>v.trim()) : [],
+          trafficTypes: get(['traffic','traffic types','traffictype']) ? get(['traffic','traffic types','traffictype']).split(/[,;|]/).map(t=>t.trim()) : [],
+          model: get(['model','pricing']),
+          status: get(['status']) || 'Prospect',
+          note: get(['opmerking','note','notes']),
+          targetingNotes: get(['targeting','targeting notes']),
+          minPayout: get(['min payout','payout','min']),
+          volume: get(['volume','vol']),
+          created: Date.now()
+        });
+        added++;
+      }
+    }
+
+    saveData(type === 'advertiser' ? 'advertisers' : 'publishers', type === 'advertiser' ? advertisers : publishers);
+    const resEl = document.getElementById(type === 'advertiser' ? 'advImportResult' : 'pubImportResult');
+    resEl.innerHTML = `<div class="import-result ${dupes>0?'import-warn':'import-ok'}">
+      ✓ ${added} geïmporteerd · ${dupes} duplicaten overgeslagen${errors>0?' · '+errors+' fouten':''}
+    </div>`;
+    type === 'advertiser' ? renderAdvertisers() : renderPublishers();
+    updateGeoFilter();
+    input.value = '';
+  };
+  reader.readAsText(file);
+}
+
+function parseCSVLine(line) {
+  const result = []; let current = ''; let inQ = false;
+  for (const c of line) {
+    if (c === '"') { inQ = !inQ; }
+    else if (c === ',' && !inQ) { result.push(current); current = ''; }
+    else { current += c; }
+  }
+  result.push(current);
+  return result.map(c => c.replace(/^"|"$/g,'').trim());
+}
+
+// RENDER ADVERTISERS
+function renderAdvertisers() {
+  const search = document.getElementById('advSearch').value.toLowerCase();
+  const vert = document.getElementById('advVertFilter').value;
+  const status = document.getElementById('advStatusFilter').value;
+
+  let data = advertisers.filter(r => {
+    if (search && !r.name.toLowerCase().includes(search) && !(r.email||'').toLowerCase().includes(search)) return false;
+    if (vert && r.vertical !== vert) return false;
+    if (status && r.status !== status) return false;
+    return true;
+  });
+
+  const tbody = document.getElementById('advTable');
+  if (!data.length) { tbody.innerHTML = '<tr><td colspan="9" class="empty-state">Geen adverteerders gevonden.</td></tr>'; return; }
+
+  const statusColors = { Prospect:'pill-grey', Contacted:'pill-blue', Active:'pill-green', Declined:'pill-red' };
+  tbody.innerHTML = data.map(r => `<tr>
+    <td style="font-weight:500;font-size:12px">${r.name}</td>
+    <td><a href="${r.website||'#'}" target="_blank" style="color:var(--accent);font-size:11px">${r.website?'↗ link':''}</a></td>
+    <td style="font-size:11px">${r.email||''}</td>
+    <td>${r.country||''}</td>
+    <td>${r.vertical?`<span class="pill pill-purple">${r.vertical}</span>`:''}</td>
+    <td>${r.model?`<span class="pill pill-blue">${r.model}</span>`:''}</td>
+    <td><span class="pill ${statusColors[r.status]||'pill-grey'}">${r.status}</span></td>
+    <td style="font-size:11px;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${r.note||''}">${r.note||''}</td>
+    <td>
+      <div class="prospect-actions">
+        <button class="btn btn-sm" onclick="editProspect('${r.id}','advertiser')">✎</button>
+        <button class="btn btn-sm" onclick="deleteProspect('${r.id}','advertiser')" style="color:var(--red-text)">✕</button>
+      </div>
+    </td>
+  </tr>`).join('');
+}
+
+// RENDER PUBLISHERS
+function renderPublishers() {
+  const search = document.getElementById('pubSearch').value.toLowerCase();
+  const geo = document.getElementById('pubGeoFilter').value;
+  const vert = document.getElementById('pubVertFilter2').value;
+  const model = document.getElementById('pubModelFilter').value;
+
+  let data = publishers.filter(r => {
+    if (search && !r.name.toLowerCase().includes(search)) return false;
+    if (geo && !r.geos.includes(geo)) return false;
+    if (vert && !r.verticals.includes(vert)) return false;
+    if (model && r.model !== model) return false;
+    return true;
+  });
+
+  const container = document.getElementById('publisherCards');
+  if (!data.length) { container.innerHTML = '<div class="empty-state">Geen publishers gevonden.</div>'; return; }
+
+  const statusColors = { Prospect:'pill-grey', Contacted:'pill-blue', Active:'pill-green', Declined:'pill-red' };
+  container.innerHTML = data.map(r => {
+    const suggestions = generateTargetingSuggestions(r.geos, r.verticals, r.trafficTypes);
+    return `<div class="profile-card">
+      <div class="profile-header">
+        <div>
+          <div class="profile-name">${r.name}</div>
+          <div class="profile-meta">${r.email||''} ${r.website?'· <a href="'+r.website+'" target="_blank" style="color:var(--accent)">website ↗</a>':''}</div>
+        </div>
+        <div style="display:flex;gap:6px;align-items:center;flex-shrink:0">
+          <span class="pill ${statusColors[r.status]||'pill-grey'}">${r.status}</span>
+          ${r.model?`<span class="pill pill-blue">${r.model}</span>`:''}
+          <button class="btn btn-sm" onclick="editProspect('${r.id}','publisher')">✎</button>
+          <button class="btn btn-sm" onclick="deleteProspect('${r.id}','publisher')" style="color:var(--red-text)">✕</button>
+        </div>
+      </div>
+
+      ${r.geos.length ? `<div class="profile-section">
+        <div class="profile-section-title">Geo's</div>
+        <div class="chip-group">${r.geos.map(g=>`<span class="chip selected">${g}</span>`).join('')}</div>
+      </div>` : ''}
+
+      ${r.verticals.length ? `<div class="profile-section">
+        <div class="profile-section-title">Verticals</div>
+        <div class="chip-group">${r.verticals.map(v=>`<span class="chip selected">${v}</span>`).join('')}</div>
+      </div>` : ''}
+
+      ${r.trafficTypes.length ? `<div class="profile-section">
+        <div class="profile-section-title">Traffic types</div>
+        <div class="chip-group">${r.trafficTypes.map(t=>`<span class="chip selected">${t}</span>`).join('')}</div>
+      </div>` : ''}
+
+      ${suggestions ? `<div class="suggestion-box">
+        <strong>💡 TAC targeting suggesties</strong>${suggestions}
+      </div>` : ''}
+
+      ${r.targetingNotes ? `<div style="font-size:11px;color:var(--text-sec);margin-top:8px;background:var(--surface2);padding:7px 10px;border-radius:6px">${r.targetingNotes}</div>` : ''}
+
+      <div style="display:flex;gap:16px;margin-top:10px;font-size:11px;color:var(--text-muted)">
+        ${r.minPayout ? `<span>Min. payout: <strong style="color:var(--text)">${r.minPayout}</strong></span>` : ''}
+        ${r.volume ? `<span>Volume: <strong style="color:var(--text)">${r.volume}</strong></span>` : ''}
+        ${r.note ? `<span>📝 ${r.note}</span>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function generateTargetingSuggestions(geos, verticals, trafficTypes) {
+  const tips = [];
+  // iGaming suggestions
+  if (verticals.includes('iGaming')) {
+    if (geos.includes('DE')) tips.push('DE iGaming: focus op bonusaanbiedingen en free spins. CPA €100–150 realistisch. Vermijd incentive traffic — hoge rejection risk.');
+    if (geos.includes('BR')) tips.push('BR iGaming: grote markt, maar rejection rates kunnen hoog zijn. Overweeg Melbet of Leon Casino CPAs. Voorkeur voor CPM/CPL bij nieuwe publishers.');
+    if (geos.includes('UK')) tips.push('UK: Superfreebingo-type CPL werkt goed. GBP-betaling beschikbaar. Houd rekening met Gambling Commission compliance.');
+    if (geos.includes('NZ') || geos.includes('AU')) tips.push('NZ/AU: hoge margins (46%+) en lage rejection rate. 123Casinos NZ CPL is sterkste offer. Ideaal startpunt.');
+    if (geos.includes('IT')) tips.push('IT: FreeSpinGenius CPL levert 11 publishers. CPA-margins rond 34%. Altroconsumo past voor consumentengerichte publishers.');
+    if (geos.includes('ES')) tips.push('ES: MrPunter en MafiaCasino CPA beschikbaar. Margins 37–41%. CPM-aanbod beschikbaar voor Genting/Slingo.');
+  }
+  // Leadgen suggestions
+  if (verticals.includes('Leadgen')) {
+    if (geos.includes('NL')) tips.push('NL Leadgen: Philips CPL (€1/lead), Verisure (€40/lead), Registreer NL (€1.50/lead). Breed aanbod. Lage rejection rate.');
+    if (geos.includes('BE') || geos.includes('FR')) tips.push('BE/FR: Test Achats/Testaankoop waren groot (€84K) maar zijn gestopt. Groot gat in pipeline — check beschikbaarheid alternatieven.');
+    if (geos.includes('DE')) tips.push('DE Leadgen: Philips CPL actief. Margin 30%, maar stabiel volume. Geschikt voor email-publishers.');
+  }
+  // Dating
+  if (verticals.includes('Dating')) {
+    tips.push('Dating: "On that ass" multi-geo werkt goed (NL/DE/FR/UK/SE). CPL €8/conv, 35.8% margin. Geschikt voor social en native traffic.');
+  }
+  // Traffic type specific
+  if (trafficTypes.includes('Email')) tips.push('Email traffic: Philips CPL en Registreer NL zijn ideale match. Hoge deliverability vereist, geen incentive-aanpak.');
+  if (trafficTypes.includes('Incentive')) tips.push('Incentive: 123Casinos SE heeft "(incent)" label. Specifiek gesegregeerd. Rejection rate laag in SE. Check per offer of incentive toegestaan is.');
+  if (trafficTypes.includes('Native')) tips.push('Native: werkt goed voor Leadgen (Verisure, MIND). Overweeg advertorials voor iGaming mits geo-compliant.');
+  if (trafficTypes.includes('Push')) tips.push('Push notifications: geschikt voor CPL offers met brede geo-dekking. Pas op voor hoge reject rates in BR en AU.');
+
+  if (!tips.length && (geos.length || verticals.length)) tips.push('Vul meer geo\'s en verticals in voor specifieke aanbevelingen op basis van de TAC offer-portfolio.');
+  return tips.length ? tips.map(t=>`<div style="margin-top:4px">• ${t}</div>`).join('') : '';
+}
+
+// MODAL
+function openModal(type, id=null) {
+  document.getElementById('modalType').value = type;
+  document.getElementById('modalEditId').value = id || '';
+  document.getElementById('modalTitle').textContent = id ? 'Prospect bewerken' : (type==='advertiser' ? 'Adverteerder toevoegen' : 'Publisher toevoegen');
+  document.getElementById('modalAdvFields').style.display = type==='advertiser' ? '' : 'none';
+  document.getElementById('modalPubFields').style.display = type==='publisher' ? '' : 'none';
+
+  // Build geo chips
+  buildChips('advGeoChips', GEOS, [], (sel) => {});
+  buildChips('pubGeoChips', GEOS, [], updateSuggestions);
+  buildChips('pubVertChips', VERTICALS, [], updateSuggestions);
+  buildChips('pubTrafficChips', TRAFFIC_TYPES, [], updateSuggestions);
+
+  // Fill geo select
+  const sel = document.getElementById('fAdvGeo');
+  sel.innerHTML = '<option value="">— selecteer —</option>' + GEOS.map(g=>`<option value="${g}">${g}</option>`).join('');
+
+  // Pre-fill if editing
+  if (id) {
+    const arr = type==='advertiser' ? advertisers : publishers;
+    const r = arr.find(x=>x.id===id);
+    if (r) {
+      document.getElementById('fName').value = r.name;
+      document.getElementById('fWebsite').value = r.website||'';
+      document.getElementById('fEmail').value = r.email||'';
+      document.getElementById('fStatus').value = r.status||'Prospect';
+      document.getElementById('fModel').value = r.model||'';
+      document.getElementById('fNote').value = r.note||'';
+      if (type==='advertiser') {
+        document.getElementById('fAdvGeo').value = r.country||'';
+        document.getElementById('fAdvVert').value = r.vertical||'';
+        buildChips('advGeoChips', GEOS, r.geos||[], ()=>{});
+      } else {
+        buildChips('pubGeoChips', GEOS, r.geos||[], updateSuggestions);
+        buildChips('pubVertChips', VERTICALS, r.verticals||[], updateSuggestions);
+        buildChips('pubTrafficChips', TRAFFIC_TYPES, r.trafficTypes||[], updateSuggestions);
+        document.getElementById('fTargetingNotes').value = r.targetingNotes||'';
+        document.getElementById('fMinPayout').value = r.minPayout||'';
+        document.getElementById('fVolume').value = r.volume||'';
+        updateSuggestions();
+      }
+    }
+  } else {
+    ['fName','fWebsite','fEmail','fNote','fTargetingNotes','fMinPayout','fVolume'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
+  }
+
+  document.getElementById('modalOverlay').classList.add('open');
+}
+
+function buildChips(containerId, items, selected, onChange) {
+  const container = document.getElementById(containerId);
+  container.innerHTML = items.map(item => `
+    <span class="chip ${selected.includes(item)?'selected':''}" onclick="toggleChip(this,'${containerId}')">
+      ${item}
+    </span>
+  `).join('');
+  container._onChange = onChange;
+}
+
+function toggleChip(el, containerId) {
+  el.classList.toggle('selected');
+  const container = document.getElementById(containerId);
+  if (container._onChange) container._onChange(getSelectedChips(containerId));
+}
+
+function getSelectedChips(containerId) {
+  return [...document.querySelectorAll(`#${containerId} .chip.selected`)].map(c=>c.textContent.trim());
+}
+
+function updateSuggestions() {
+  const geos = getSelectedChips('pubGeoChips');
+  const verts = getSelectedChips('pubVertChips');
+  const traffic = getSelectedChips('pubTrafficChips');
+  const sugg = generateTargetingSuggestions(geos, verts, traffic);
+  document.getElementById('targetingSuggestions').innerHTML = sugg || 'Selecteer geo\'s en verticals voor suggesties.';
+}
+
+function closeModal() {
+  document.getElementById('modalOverlay').classList.remove('open');
+}
+
+function saveProspect() {
+  const type = document.getElementById('modalType').value;
+  const editId = document.getElementById('modalEditId').value;
+  const name = document.getElementById('fName').value.trim();
+  if (!name) { showToast('Naam is verplicht'); return; }
+
+  const arr = type==='advertiser' ? advertisers : publishers;
+  if (isDuplicate(arr, name, document.getElementById('fWebsite').value, editId||null)) {
+    if (!confirm('Er lijkt al een record met deze naam/website te bestaan. Toch opslaan?')) return;
+  }
+
+  const base = {
+    id: editId || generateId(), type, name,
+    website: document.getElementById('fWebsite').value,
+    email: document.getElementById('fEmail').value,
+    status: document.getElementById('fStatus').value,
+    model: document.getElementById('fModel').value,
+    note: document.getElementById('fNote').value,
+    created: editId ? (arr.find(r=>r.id===editId)?.created||Date.now()) : Date.now(),
+    updated: Date.now()
+  };
+
+  let record;
+  if (type==='advertiser') {
+    record = { ...base, country: document.getElementById('fAdvGeo').value, vertical: document.getElementById('fAdvVert').value, geos: getSelectedChips('advGeoChips') };
+  } else {
+    record = { ...base, geos: getSelectedChips('pubGeoChips'), verticals: getSelectedChips('pubVertChips'), trafficTypes: getSelectedChips('pubTrafficChips'), targetingNotes: document.getElementById('fTargetingNotes').value, minPayout: document.getElementById('fMinPayout').value, volume: document.getElementById('fVolume').value };
+  }
+
+  if (editId) {
+    const idx = arr.findIndex(r=>r.id===editId);
+    if (idx>=0) arr[idx] = record;
+  } else {
+    arr.push(record);
+  }
+
+  if (type==='advertiser') { saveData('advertisers', advertisers); renderAdvertisers(); }
+  else { saveData('publishers', publishers); renderPublishers(); updateGeoFilter(); }
+
+  closeModal();
+  showToast(editId ? 'Opgeslagen ✓' : 'Toegevoegd ✓');
+}
+
+function editProspect(id, type) { openModal(type, id); }
+
+function deleteProspect(id, type) {
+  if (!confirm('Verwijderen?')) return;
+  if (type==='advertiser') { advertisers=advertisers.filter(r=>r.id!==id); saveData('advertisers',advertisers); renderAdvertisers(); }
+  else { publishers=publishers.filter(r=>r.id!==id); saveData('publishers',publishers); renderPublishers(); updateGeoFilter(); }
+  showToast('Verwijderd');
+}
+
+function updateGeoFilter() {
+  const allGeos = [...new Set(publishers.flatMap(p=>p.geos))].sort();
+  const sel = document.getElementById('pubGeoFilter');
+  const cur = sel.value;
+  sel.innerHTML = '<option value="">Alle geo\'s</option>' + allGeos.map(g=>`<option value="${g}" ${g===cur?'selected':''}>${g}</option>`).join('');
+}
+
+function exportCSV() {
+  const rows = [
+    ['type','naam','website','email','status','model','landen/verticals','opmerking'],
+    ...advertisers.map(r => [r.type,r.name,r.website||'',r.email||'',r.status,r.model||'',(r.geos||[]).join(';'),r.note||'']),
+    ...publishers.map(r => [r.type,r.name,r.website||'',r.email||'',r.status,r.model||'',(r.geos||[]).join(';')+' / '+(r.verticals||[]).join(';'),r.note||''])
+  ];
+  const csv = rows.map(r=>r.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(',')).join('\n');
+  const a = document.createElement('a');
+  a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv);
+  a.download = 'TAC_prospects_' + new Date().toISOString().slice(0,10) + '.csv';
+  a.click();
+  showToast('Export klaar ✓');
+}
+
+// Init
+updateGeoFilter();
+renderAdvertisers();
+renderPublishers();
+</script>
+</body>
+</html>

@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Publishers — TAC Dashboard</title>
+<link rel="manifest" href="manifest.json">
+<link rel="stylesheet" href="shared.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+.alert-box{border-radius:10px;padding:10px 14px;font-size:12px;margin-bottom:8px;display:flex;gap:10px;align-items:flex-start;border:.5px solid transparent}
+.alert-red{background:var(--red-bg);color:var(--red-text);border-color:var(--red)}
+.alert-amber{background:var(--amber-bg);color:var(--amber-text);border-color:var(--amber)}
+.cw{position:relative;width:100%}
+.leg{display:flex;flex-wrap:wrap;gap:12px;margin-bottom:8px;font-size:12px;color:var(--text-sec)}
+.leg span{display:flex;align-items:center;gap:5px}
+.ldot{width:10px;height:10px;border-radius:2px;flex-shrink:0}
+</style>
+</head>
+<body>
+<aside class="sidebar">
+  <div class="sidebar-logo"><div class="logo-main">TAC Media</div><div class="logo-sub">Performance Dashboard</div></div>
+  <nav id="mainNav"></nav>
+  <div class="sidebar-bottom">v2.0 · Publishers</div>
+</aside>
+<div class="main-content">
+<div class="page-header">
+  <span class="page-title">Publisher Analyse</span>
+  <div class="page-actions">
+    <button class="btn btn-sm" onclick="document.getElementById('fileInput').click()">↑ Offer18 laden</button>
+  </div>
+</div>
+<input type="file" id="fileInput" accept=".xlsx" multiple onchange="handleFiles(this.files)">
+<div class="content">
+
+<div id="noData" class="empty-state" style="padding:60px 24px">
+  <div style="font-size:32px;margin-bottom:12px">◈</div>
+  <div style="font-size:15px;font-weight:500;margin-bottom:6px">Geen data geladen</div>
+  <div style="font-size:13px;color:var(--text-muted)">Laad Offer18 exports via de knop rechtsboven</div>
+</div>
+
+<div id="pubDash" style="display:none">
+  <div class="kpi-grid" id="kpiRow"></div>
+
+  <div class="section-label" style="margin-top:20px">⚠ Aandachtspunten</div>
+  <div id="alertsDiv"></div>
+
+  <div class="section-label">Rejection rate per geo</div>
+  <div class="card">
+    <div class="leg"><span><span class="ldot" style="background:rgba(42,120,214,.25)"></span>Approved conv.</span><span><span class="ldot" style="background:#e34948"></span>Rejection %</span></div>
+    <div class="cw" style="height:240px"><canvas id="geoChart"></canvas></div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">
+      <span>Publisher ranking</span>
+      <div class="tabs" style="margin:0" id="pubRankTabs">
+        <button class="tab active" onclick="switchPubRank('rej',this)">Rejection %</button>
+        <button class="tab" onclick="switchPubRank('rev',this)">Revenue</button>
+        <button class="tab" onclick="switchPubRank('conv',this)">Conversies</button>
+        <button class="tab" onclick="switchPubRank('mp',this)">Margin %</button>
+      </div>
+    </div>
+    <div class="cw" style="height:320px"><canvas id="pubRankChart"></canvas></div>
+  </div>
+
+  <div class="section-label">Maandelijkse rejection trend</div>
+  <div class="card">
+    <div class="cw" style="height:180px"><canvas id="monthRejChart"></canvas></div>
+  </div>
+
+  <div class="section-label">Publisher detail</div>
+  <div class="filter-bar" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+    <input type="text" id="pubSearch" placeholder="Zoeken..." oninput="renderPubTable()" style="max-width:200px">
+    <select id="pubGeoFilt" onchange="renderPubTable()"><option value="">Alle geo's</option></select>
+    <select id="pubRejFilt" onchange="renderPubTable()">
+      <option value="">Alle</option><option value="clean">0% rejection</option>
+      <option value="low">0–5%</option><option value="med">5–15%</option><option value="high">15%+</option>
+    </select>
+  </div>
+  <div class="card" style="padding:0">
+    <div class="tw"><table>
+      <thead><tr><th>#</th><th>Publisher</th><th>Totaal conv.</th><th>Approved</th><th>Rejected</th><th>Rej. %</th><th>Revenue</th><th>Margin %</th><th>Rev/conv</th><th>Maanden</th><th>Offers</th></tr></thead>
+      <tbody id="pubTable"></tbody>
+    </table></div>
+  </div>
+</div>
+</div>
+</div>
+<div class="toast" id="toast"></div>
+<script src="nav.js"></script>
+<script>
+renderNav('publishers');
+
+let O18 = [];
+let pubStats = [];
+let geoStats = [];
+let monthStats = [];
+let pubChartMode = 'rej';
+let charts = {};
+
+function showToast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2500);}
+
+function handleFiles(files){
+  Array.from(files).forEach(file=>{
+    const r=new FileReader();
+    r.onload=e=>{
+      const wb=XLSX.read(e.target.result,{type:'array'});
+      const month=detectMonth(file.name);
+      parseSheet(wb.Sheets[wb.SheetNames[0]],month);
+      compute();
+      renderAll();
+      showToast(month+' geladen');
+    };
+    r.readAsArrayBuffer(file);
+  });
+}
+
+function detectMonth(fname){
+  const months={jun:'Jun',jul:'Jul',aug:'Aug',sep:'Sep',oct:'Oct',nov:'Nov',dec:'Dec',jan:'Jan',feb:'Feb',mar:'Mar',apr:'Apr',may:'May'};
+  const f=fname.toLowerCase();
+  for(const y of['2024','2025','2026']){
+    if(f.includes(y)){for(const[k,v]of Object.entries(months)){if(f.includes(k))return v+' '+y;}}
+  }
+  const now=new Date();
+  return ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][now.getMonth()]+' '+now.getFullYear();
+}
+
+function parseSheet(sheet,month){
+  const rows=XLSX.utils.sheet_to_json(sheet,{header:1});
+  let hi=-1;for(let i=0;i<rows.length;i++){if(rows[i][0]==='OfferID'){hi=i;break;}}
+  if(hi<0)return;
+  O18=O18.filter(r=>r.Month!==month);
+  for(let i=hi+1;i<rows.length;i++){
+    const r=rows[i];if(!r[0])continue;
+    const geo=extractGeo(String(r[0]||'').replace(/^\d+ ~ /,''));
+    O18.push({Month:month,OfferName:String(r[0]||'').replace(/^\d+ ~ /,''),AffName:String(r[1]||'').replace(/^\d+ ~ /,''),
+      Conv:Number(r[3])||0,Revenue:Number(r[4])||0,Payout:Number(r[5])||0,Currency:String(r[6]||'EUR'),Status:String(r[7]||''),Geo:geo});
+  }
+}
+
+function extractGeo(name){
+  for(const g of['NL','DE','UK','BR','ES','IT','FR','AU','CA','MX','SE','NZ','PT','BE','AT','CH','NO','PL','IE','AR']){
+    if(new RegExp('\\b'+g+'\\b').test(name))return g;
+  }return'Other';
+}
+
+function compute(){
+  // Publisher stats
+  const pm={};
+  O18.forEach(r=>{
+    if(!pm[r.AffName])pm[r.AffName]={total:0,approved:0,rejected:0,pending:0,rev:0,pay:0,months:new Set(),offers:new Set()};
+    const s=r.Status;const p=pm[r.AffName];
+    p.total+=r.Conv;
+    if(s==='Approved'){p.approved+=r.Conv;p.rev+=r.Revenue;p.pay+=r.Payout;}
+    else if(s==='Rejected')p.rejected+=r.Conv;
+    else p.pending+=r.Conv;
+    p.months.add(r.Month);p.offers.add(r.OfferName);
+  });
+  pubStats=Object.entries(pm).map(([name,p])=>({name,total:p.total,approved:p.approved,rejected:p.rejected,pending:p.pending,
+    rev:p.rev,pay:p.pay,margin:p.rev-p.pay,mp:p.rev?(p.rev-p.pay)/p.rev*100:0,
+    rejRate:p.total?p.rejected/p.total*100:0,rpc:p.approved?p.rev/p.approved:0,
+    months:p.months.size,offers:p.offers.size})).filter(p=>p.total>0).sort((a,b)=>b.total-a.total);
+
+  // Geo stats
+  const gm={};
+  O18.forEach(r=>{
+    if(!gm[r.Geo])gm[r.Geo]={total:0,approved:0,rejected:0,rev:0,pay:0};
+    const g=gm[r.Geo];g.total+=r.Conv;
+    if(r.Status==='Approved'){g.approved+=r.Conv;g.rev+=r.Revenue;g.pay+=r.Payout;}
+    else if(r.Status==='Rejected')g.rejected+=r.Conv;
+  });
+  geoStats=Object.entries(gm).map(([geo,g])=>({geo,total:g.total,approved:g.approved,rejected:g.rejected,
+    rejRate:g.total?g.rejected/g.total*100:0,rev:g.rev,pay:g.pay})).filter(g=>g.total>0).sort((a,b)=>b.total-a.total);
+
+  // Monthly stats
+  const mm={};
+  O18.forEach(r=>{
+    if(!mm[r.Month])mm[r.Month]={approved:0,rejected:0,total:0};
+    mm[r.Month].total+=r.Conv;
+    if(r.Status==='Approved')mm[r.Month].approved+=r.Conv;
+    else if(r.Status==='Rejected')mm[r.Month].rejected+=r.Conv;
+  });
+  const order=['Jun 2024','Jul 2024','Aug 2024','Sep 2024','Oct 2024','Nov 2024','Dec 2024','Jan 2025','Feb 2025','Mar 2025','Apr 2025','May 2025','Jun 2025','Jul 2025','Aug 2025','Sep 2025','Oct 2025','Nov 2025','Dec 2025'];
+  monthStats=order.filter(m=>mm[m]).map(m=>({month:m,total:mm[m].total,approved:mm[m].approved,rejected:mm[m].rejected,rejRate:mm[m].total?mm[m].rejected/mm[m].total*100:0}));
+
+  // Geo filter options
+  const geoSel=document.getElementById('pubGeoFilt');
+  const cur=geoSel.value;
+  geoSel.innerHTML='<option value="">Alle geo\'s</option>'+[...new Set(O18.map(r=>r.Geo))].sort().map(g=>`<option value="${g}" ${g===cur?'selected':''}>${g}</option>`).join('');
+}
+
+function renderAll(){
+  if(!O18.length)return;
+  document.getElementById('noData').style.display='none';
+  document.getElementById('pubDash').style.display='';
+  renderKPIs();renderAlerts();renderGeoChart();renderPubRankChart();renderMonthChart();renderPubTable();
+}
+
+function renderKPIs(){
+  const totalConv=O18.filter(r=>r.Status==='Approved').reduce((s,r)=>s+r.Conv,0);
+  const totalRej=O18.filter(r=>r.Status==='Rejected').reduce((s,r)=>s+r.Conv,0);
+  const totalAll=O18.reduce((s,r)=>s+r.Conv,0);
+  const rejRate=totalAll?totalRej/totalAll*100:0;
+  const goodPubs=pubStats.filter(p=>p.rejRate===0).length;
+  const badPubs=pubStats.filter(p=>p.rejRate>10&&p.total>=50).length;
+  document.getElementById('kpiRow').innerHTML=`
+    <div class="kpi"><div class="kpi-l">Totaal publishers</div><div class="kpi-v">${pubStats.length}</div><div class="kpi-s">met conversies</div></div>
+    <div class="kpi"><div class="kpi-l">Platform rejection rate</div><div class="kpi-v" style="color:${rejRate>8?'var(--red)':rejRate>3?'var(--amber)':'var(--green)'}">${rejRate.toFixed(1)}%</div><div class="kpi-s">${totalRej.toLocaleString('nl-NL')} van ${totalAll.toLocaleString('nl-NL')} conv.</div></div>
+    <div class="kpi"><div class="kpi-l">0% rejection publishers</div><div class="kpi-v" style="color:var(--green)">${goodPubs}</div><div class="kpi-s">volledig schone traffic</div></div>
+    <div class="kpi"><div class="kpi-l">Hoog risico (>10%)</div><div class="kpi-v" style="color:var(--red)">${badPubs}</div><div class="kpi-s">aandacht vereist</div></div>
+  `;
+}
+
+function renderAlerts(){
+  const highrisk=pubStats.filter(p=>p.rejRate>20&&p.total>=30).sort((a,b)=>b.rejRate-a.rejRate);
+  const el=document.getElementById('alertsDiv');
+  if(!highrisk.length){el.innerHTML='<div style="font-size:12px;color:var(--green-text);background:var(--green-bg);padding:8px 12px;border-radius:8px;border:.5px solid var(--green)">✓ Geen publishers met rejection rate boven 20% (bij min. 30 conversies).</div>';return;}
+  el.innerHTML=highrisk.slice(0,4).map(p=>{
+    const cls=p.rejRate>50?'alert-red':'alert-amber';
+    return `<div class="alert-box ${cls}"><span style="font-size:16px">${p.rejRate>50?'🔴':'🟡'}</span><div><strong>${p.name}</strong> — ${p.rejRate.toFixed(1)}% rejection rate (${p.rejected} van ${p.total} conv.). Revenue (approved): €${Math.round(p.rev).toLocaleString('nl-NL')}.</div></div>`;
+  }).join('');
+}
+
+function renderGeoChart(){
+  const geos=geoStats.map(g=>g.geo);
+  const appr=geoStats.map(g=>g.approved);
+  const rejR=geoStats.map(g=>+g.rejRate.toFixed(1));
+  const colors=rejR.map(r=>r>20?'#e34948':r>10?'#eda100':r>0?'#4a3aa7':'#1baf7a');
+  if(charts.geoChart)charts.geoChart.destroy();
+  charts.geoChart=new Chart(document.getElementById('geoChart'),{type:'bar',
+    data:{labels:geos,datasets:[
+      {label:'Approved',data:appr,backgroundColor:'rgba(42,120,214,.18)',borderColor:'rgba(42,120,214,.4)',borderWidth:1,borderRadius:3,yAxisID:'y'},
+      {type:'line',label:'Rej %',data:rejR,borderColor:'#e34948',borderWidth:2,pointRadius:5,pointBackgroundColor:colors,tension:.2,yAxisID:'y2'}
+    ]},
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>c.dataset.label==='Rej %'?' '+c.parsed.y.toFixed(1)+'%':' '+c.parsed.y.toLocaleString('nl-NL')}}},
+      scales:{x:{ticks:{font:{size:10},color:'#898781'},grid:{display:false}},
+        y:{ticks:{font:{size:10},color:'#898781',callback:v=>v>=1000?(v/1000).toFixed(0)+'k':v},grid:{color:'rgba(0,0,0,.06)'}},
+        y2:{min:0,max:80,position:'right',ticks:{font:{size:10},color:'#e34948',callback:v=>v+'%'},grid:{display:false}}}}
+  });
+}
+
+function renderPubRankChart(){
+  let sorted;
+  if(pubChartMode==='rej') sorted=[...pubStats].filter(p=>p.total>=20).sort((a,b)=>b.rejRate-a.rejRate).slice(0,12);
+  else if(pubChartMode==='rev') sorted=[...pubStats].sort((a,b)=>b.rev-a.rev).slice(0,12);
+  else if(pubChartMode==='conv') sorted=[...pubStats].sort((a,b)=>b.total-a.total).slice(0,12);
+  else sorted=[...pubStats].filter(p=>p.rev>100).sort((a,b)=>b.mp-a.mp).slice(0,12);
+  const vals=sorted.map(p=>pubChartMode==='rej'?+p.rejRate.toFixed(1):pubChartMode==='rev'?p.rev:pubChartMode==='conv'?p.total:+p.mp.toFixed(1));
+  const colors=pubChartMode==='rej'?sorted.map(p=>p.rejRate>20?'#e34948':p.rejRate>5?'#eda100':'#1baf7a'):sorted.map(()=>'#2a78d6');
+  if(charts.pubRankChart)charts.pubRankChart.destroy();
+  charts.pubRankChart=new Chart(document.getElementById('pubRankChart'),{type:'bar',
+    data:{labels:sorted.map(p=>p.name.length>35?p.name.slice(0,33)+'…':p.name),datasets:[{data:vals,backgroundColor:colors,borderRadius:3,borderSkipped:'left'}]},
+    options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>pubChartMode==='rej'?' '+c.parsed.x.toFixed(1)+'%':pubChartMode==='rev'?' €'+Math.round(c.parsed.x).toLocaleString('nl-NL'):pubChartMode==='mp'?' '+c.parsed.x.toFixed(1)+'%':' '+Math.round(c.parsed.x).toLocaleString('nl-NL')}}},
+      scales:{x:{ticks:{font:{size:10},color:'#898781'},grid:{color:'rgba(0,0,0,.06)'}},y:{ticks:{font:{size:9},color:'#898781'},grid:{display:false}}}}
+  });
+}
+
+function switchPubRank(mode,el){
+  pubChartMode=mode;
+  document.querySelectorAll('#pubRankTabs .tab').forEach(t=>t.classList.remove('active'));
+  if(el)el.classList.add('active');
+  renderPubRankChart();
+}
+
+function renderMonthChart(){
+  const labels=monthStats.map(m=>m.month.replace(' 20','\''));
+  if(charts.monthRejChart)charts.monthRejChart.destroy();
+  charts.monthRejChart=new Chart(document.getElementById('monthRejChart'),{type:'bar',
+    data:{labels,datasets:[
+      {label:'Approved',data:monthStats.map(m=>m.approved),backgroundColor:'rgba(42,120,214,.18)',borderColor:'rgba(42,120,214,.4)',borderWidth:1,borderRadius:2,yAxisID:'y'},
+      {type:'line',label:'Rej %',data:monthStats.map(m=>+m.rejRate.toFixed(1)),borderColor:'#e34948',borderWidth:2,pointRadius:4,pointBackgroundColor:monthStats.map(m=>m.rejRate>10?'#e34948':m.rejRate>5?'#eda100':'#1baf7a'),tension:.2,yAxisID:'y2'}
+    ]},
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>c.dataset.label==='Rej %'?' '+c.parsed.y.toFixed(1)+'%':' '+c.parsed.y.toLocaleString('nl-NL')}}},
+      scales:{x:{ticks:{font:{size:9},color:'#898781',autoSkip:true,maxRotation:0},grid:{display:false}},
+        y:{ticks:{font:{size:9},color:'#898781',callback:v=>v>=1000?(v/1000).toFixed(0)+'k':v},grid:{color:'rgba(0,0,0,.06)'}},
+        y2:{min:0,max:20,position:'right',ticks:{font:{size:9},color:'#e34948',callback:v=>v+'%'},grid:{display:false}}}}
+  });
+}
+
+function renderPubTable(){
+  const q=(document.getElementById('pubSearch').value||'').toLowerCase();
+  const gf=document.getElementById('pubGeoFilt').value;
+  const rf=document.getElementById('pubRejFilt').value;
+  let data=pubStats;
+  if(q)data=data.filter(p=>p.name.toLowerCase().includes(q));
+  if(gf){const gset=new Set(O18.filter(r=>r.Geo===gf&&r.Status==='Approved').map(r=>r.AffName));data=data.filter(p=>gset.has(p.name));}
+  if(rf==='clean')data=data.filter(p=>p.rejRate===0);
+  else if(rf==='low')data=data.filter(p=>p.rejRate<5);
+  else if(rf==='med')data=data.filter(p=>p.rejRate>=5&&p.rejRate<15);
+  else if(rf==='high')data=data.filter(p=>p.rejRate>=15);
+  const rc=r=>r>15?'pill-red':r>5?'pill-amber':r===0?'pill-green':'pill-grey';
+  document.getElementById('pubTable').innerHTML=data.slice(0,40).map((p,i)=>`<tr>
+    <td style="color:var(--text-muted);font-size:11px">${i+1}</td>
+    <td style="font-size:11px;font-weight:500;max-width:200px;word-break:break-word;white-space:normal">${p.name}</td>
+    <td style="text-align:right">${p.total.toLocaleString('nl-NL')}</td>
+    <td style="text-align:right">${p.approved.toLocaleString('nl-NL')}</td>
+    <td style="text-align:right">${p.rejected}</td>
+    <td><span class="pill ${rc(p.rejRate)}">${p.rejRate.toFixed(1)}%</span></td>
+    <td style="text-align:right">€${Math.round(p.rev).toLocaleString('nl-NL')}</td>
+    <td style="text-align:right;color:${p.mp>=40?'var(--green-text)':p.mp<25?'var(--red-text)':'var(--text)'}">${p.mp.toFixed(1)}%</td>
+    <td style="text-align:right">€${p.rpc.toFixed(2)}</td>
+    <td style="text-align:right">${p.months}</td>
+    <td style="text-align:right">${p.offers}</td>
+  </tr>`).join('');
+}
+</script>
+</body></html>

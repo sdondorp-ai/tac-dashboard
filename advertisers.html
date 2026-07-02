@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Adverteerders — TAC Dashboard</title>
+<link rel="manifest" href="manifest.json">
+<link rel="stylesheet" href="shared.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+.cw{position:relative;width:100%}
+.heatcell{text-align:right;font-size:11px;transition:background .15s}
+.insight{background:var(--surface);border-radius:10px;padding:10px 14px;margin-bottom:8px;font-size:12px;border-left:3px solid var(--accent)}
+.insight.green{border-left-color:var(--green)} .insight.amber{border-left-color:var(--amber)} .insight.red{border-left-color:var(--red)}
+.conc-bar{display:flex;height:18px;border-radius:6px;overflow:hidden;margin:10px 0 4px}
+</style>
+</head>
+<body>
+<aside class="sidebar">
+  <div class="sidebar-logo"><div class="logo-main">TAC Media</div><div class="logo-sub">Performance Dashboard</div></div>
+  <nav id="mainNav"></nav>
+  <div class="sidebar-bottom">v2.0 · Adverteerders</div>
+</aside>
+<div class="main-content">
+<div class="page-header">
+  <span class="page-title">Adverteerder Analyse</span>
+  <div class="page-actions">
+    <button class="btn btn-sm" onclick="document.getElementById('fileInput').click()">↑ Offer18 laden</button>
+  </div>
+</div>
+<input type="file" id="fileInput" accept=".xlsx" multiple onchange="handleFiles(this.files)">
+<div class="content">
+
+<div id="noData" class="empty-state" style="padding:60px">
+  <div style="font-size:32px;margin-bottom:12px">◉</div>
+  <div style="font-size:15px;font-weight:500;margin-bottom:6px">Geen data geladen</div>
+  <div style="font-size:13px;color:var(--text-muted)">Laad Offer18 exports via de knop rechtsboven</div>
+</div>
+
+<div id="advDash" style="display:none">
+  <div class="kpi-grid" id="kpiRow"></div>
+
+  <div class="section-label" style="margin-top:20px">Revenue concentratie</div>
+  <div class="card">
+    <div class="conc-bar" id="concBar"></div>
+    <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-muted)">
+      <span>Top 5</span><span>6–10</span><span>11–20</span><span>21–54</span><span>Rest</span>
+    </div>
+    <div id="concText" style="font-size:12px;color:var(--text-sec);margin-top:8px"></div>
+  </div>
+
+  <div class="section-label">Top offers</div>
+  <div class="card">
+    <div class="card-title">
+      <span>Top 15 offers</span>
+      <div class="tabs" style="margin:0" id="sortTabs">
+        <button class="tab active" onclick="renderOfferChart('rev',this)">Revenue</button>
+        <button class="tab" onclick="renderOfferChart('margin',this)">Margin</button>
+        <button class="tab" onclick="renderOfferChart('mp',this)">Margin %</button>
+        <button class="tab" onclick="renderOfferChart('rpc',this)">Rev/conv</button>
+      </div>
+    </div>
+    <div class="cw" style="height:320px"><canvas id="offerChart"></canvas></div>
+  </div>
+
+  <div class="section-label">Geo × Model matrix</div>
+  <div class="card" style="padding:0">
+    <div class="tw"><table id="geoModelTable">
+      <thead><tr id="gmHead"></tr></thead>
+      <tbody id="gmBody"></tbody>
+    </table></div>
+  </div>
+
+  <div class="section-label">Nieuwe offers per maand</div>
+  <div class="card">
+    <div class="cw" style="height:150px"><canvas id="newOffersChart"></canvas></div>
+  </div>
+
+  <div class="section-label">Offer detail tabel</div>
+  <div class="filter-bar" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+    <input type="text" id="offerSearch" placeholder="Zoeken..." oninput="renderOfferTable()" style="max-width:200px">
+    <select id="offerGeoFilt" onchange="renderOfferTable()"><option value="">Alle geo's</option></select>
+    <select id="offerModelFilt" onchange="renderOfferTable()"><option value="">Alle modellen</option><option>CPA</option><option>CPL</option><option>CPM</option></select>
+    <select id="offerStatusFilt" onchange="renderOfferTable()">
+      <option value="">Alle offers</option><option value="active">Actief</option><option value="inactive">Inactief</option>
+    </select>
+    <select id="offerSortFilt" onchange="renderOfferTable()">
+      <option value="rev">Sorteer: Revenue</option><option value="conv">Conversies</option>
+      <option value="mp">Margin %</option><option value="rpc">Rev/conv</option>
+    </select>
+  </div>
+  <div class="card" style="padding:0">
+    <div class="tw"><table>
+      <thead><tr><th>#</th><th>Offer</th><th>Model</th><th>Geo</th><th>Val.</th><th style="text-align:right">Conv.</th><th style="text-align:right">Revenue</th><th style="text-align:right">Margin</th><th style="text-align:right">M%</th><th style="text-align:right">R/conv</th><th style="text-align:right">Rej%</th><th style="text-align:right">Pub.</th><th style="text-align:right">Mnd</th><th>Status</th></tr></thead>
+      <tbody id="offerTable"></tbody>
+    </table></div>
+  </div>
+
+  <div class="section-label">Key insights</div>
+  <div id="insightsDiv"></div>
+</div>
+</div>
+</div>
+<div class="toast" id="toast"></div>
+<script src="nav.js"></script>
+<script>
+renderNav('advertisers');
+let O18=[];let offerStats=[];let charts={};
+function showToast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2500);}
+
+function handleFiles(files){
+  Array.from(files).forEach(f=>{
+    const r=new FileReader();r.onload=e=>{
+      const wb=XLSX.read(e.target.result,{type:'array'});
+      const m=detectMonth(f.name);parseSheet(wb.Sheets[wb.SheetNames[0]],m);
+      compute();renderAll();showToast(m+' geladen');
+    };r.readAsArrayBuffer(f);
+  });
+}
+function detectMonth(fname){
+  const ms={jun:'Jun',jul:'Jul',aug:'Aug',sep:'Sep',oct:'Oct',nov:'Nov',dec:'Dec',jan:'Jan',feb:'Feb',mar:'Mar',apr:'Apr',may:'May'};
+  const f=fname.toLowerCase();
+  for(const y of['2024','2025','2026']){if(f.includes(y)){for(const[k,v]of Object.entries(ms)){if(f.includes(k))return v+' '+y;}}}
+  const n=new Date();return['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][n.getMonth()]+' '+n.getFullYear();
+}
+function parseSheet(sheet,month){
+  const rows=XLSX.utils.sheet_to_json(sheet,{header:1});
+  let hi=-1;for(let i=0;i<rows.length;i++){if(rows[i][0]==='OfferID'){hi=i;break;}}if(hi<0)return;
+  O18=O18.filter(r=>r.Month!==month);
+  for(let i=hi+1;i<rows.length;i++){
+    const r=rows[i];if(!r[0])continue;
+    const name=String(r[0]||'').replace(/^\d+ ~ /,'');
+    const geo=extractGeo(name);const model=extractModel(name);
+    O18.push({Month:month,OfferName:name,AffName:String(r[1]||'').replace(/^\d+ ~ /,''),
+      Conv:Number(r[3])||0,Revenue:Number(r[4])||0,Payout:Number(r[5])||0,Currency:String(r[6]||'EUR'),Status:String(r[7]||''),Geo:geo,Model:model});
+  }
+}
+function extractGeo(n){for(const g of['NL','DE','UK','BR','ES','IT','FR','AU','CA','MX','SE','NZ','PT','BE','AT','CH','NO','PL','IE','AR']){if(new RegExp('\\b'+g+'\\b').test(n))return g;}return'Other';}
+function extractModel(n){const m=n.match(/\b(CPA|CPL|CPM|CPS)\b/);return m?m[1]:'Other';}
+
+function compute(){
+  const om={};
+  O18.forEach(r=>{
+    const key=r.OfferName+'|'+r.Currency;
+    if(!om[key])om[key]={name:r.OfferName,cur:r.Currency,geo:r.Geo,model:r.Model,conv:0,rev:0,pay:0,rejConv:0,totalConv:0,months:new Set(),pubs:new Set(),lastMonth:''};
+    const o=om[key];o.totalConv+=r.Conv;
+    if(r.Status==='Approved'){o.conv+=r.Conv;o.rev+=r.Revenue;o.pay+=r.Payout;o.months.add(r.Month);o.pubs.add(r.AffName);if(!o.lastMonth||r.Month>o.lastMonth)o.lastMonth=r.Month;}
+    else if(r.Status==='Rejected')o.rejConv+=r.Conv;
+  });
+  offerStats=Object.values(om).map(o=>({...o,margin:o.rev-o.pay,mp:o.rev?(o.rev-o.pay)/o.rev*100:0,rpc:o.conv?o.rev/o.conv:0,rej:o.totalConv?o.rejConv/o.totalConv*100:0,months:o.months.size,pubs:o.pubs.size})).filter(o=>o.rev>0).sort((a,b)=>b.rev-a.rev);
+  // Determine active (in last 2 months of data)
+  const allMonths=[...new Set(O18.map(r=>r.Month))].sort();const last2=allMonths.slice(-2);
+  const activeSet=new Set(O18.filter(r=>last2.includes(r.Month)&&r.Status==='Approved').map(r=>r.OfferName));
+  offerStats.forEach(o=>o.active=activeSet.has(o.name));
+  // Geo filter
+  const gs=document.getElementById('offerGeoFilt');const cg=gs.value;
+  gs.innerHTML='<option value="">Alle geo\'s</option>'+[...new Set(offerStats.map(o=>o.geo))].sort().map(g=>`<option value="${g}" ${g===cg?'selected':''}>${g}</option>`).join('');
+}
+
+function renderAll(){
+  if(!O18.length)return;
+  document.getElementById('noData').style.display='none';
+  document.getElementById('advDash').style.display='';
+  renderKPIs();renderConcentration();renderOfferChart('rev');renderGeoModel();renderNewOffers();renderOfferTable();renderInsights();
+}
+
+function renderKPIs(){
+  const totalRev=offerStats.reduce((s,o)=>s+o.rev,0);
+  const active=offerStats.filter(o=>o.active).length;
+  const maxRPC=offerStats.reduce((m,o)=>o.rpc>m.rpc?o:m,{rpc:0,name:'—'});
+  const months=new Set(O18.map(r=>r.Month)).size;
+  document.getElementById('kpiRow').innerHTML=`
+    <div class="kpi"><div class="kpi-l">Totaal offers met revenue</div><div class="kpi-v">${offerStats.length}</div><div class="kpi-s">${active} actief</div></div>
+    <div class="kpi"><div class="kpi-l">Totale platform revenue</div><div class="kpi-v">€${Math.round(totalRev/1000)}K</div><div class="kpi-s">${months} maanden data</div></div>
+    <div class="kpi"><div class="kpi-l">Top offer</div><div class="kpi-v" style="font-size:14px">${offerStats[0]?.name.slice(0,20)||'—'}</div><div class="kpi-s">€${Math.round(offerStats[0]?.rev||0).toLocaleString('nl-NL')} revenue</div></div>
+    <div class="kpi"><div class="kpi-l">Hoogste rev/conv</div><div class="kpi-v">€${maxRPC.rpc.toFixed(0)}</div><div class="kpi-s">${maxRPC.name?.slice(0,20)}</div></div>
+  `;
+}
+
+function renderConcentration(){
+  const total=offerStats.reduce((s,o)=>s+o.rev,0);
+  const t5=offerStats.slice(0,5).reduce((s,o)=>s+o.rev,0);
+  const t10=offerStats.slice(0,10).reduce((s,o)=>s+o.rev,0);
+  const t20=offerStats.slice(0,20).reduce((s,o)=>s+o.rev,0);
+  const p5=t5/total*100,p10=(t10-t5)/total*100,p20=(t20-t10)/total*100,pRest=(total-t20)/total*100;
+  const bar=document.getElementById('concBar');
+  bar.innerHTML=[{w:p5,c:'#1baf7a'},{w:p10,c:'#2a78d6'},{w:p20,c:'#4a3aa7'},{w:pRest,c:'#e0dfda'}]
+    .map(s=>`<div style="width:${s.w.toFixed(1)}%;background:${s.c}" title="${s.w.toFixed(1)}%"></div>`).join('');
+  document.getElementById('concText').innerHTML=`Top 5 offers: <strong>${(t5/total*100).toFixed(0)}%</strong> van revenue &nbsp;·&nbsp; Top 10: <strong>${(t10/total*100).toFixed(0)}%</strong> &nbsp;·&nbsp; Top 20: <strong>${(t20/total*100).toFixed(0)}%</strong>`;
+}
+
+function renderOfferChart(key,el){
+  if(el){document.querySelectorAll('#sortTabs .tab').forEach(t=>t.classList.remove('active'));el.classList.add('active');}
+  const sorted=[...offerStats].sort((a,b)=>b[key]-a[key]).slice(0,15);
+  const vals=sorted.map(o=>+o[key].toFixed(key==='mp'||key==='rej'?1:0));
+  const colors=key==='mp'?sorted.map(o=>o.mp>=45?'#1baf7a':o.mp>=35?'#2a78d6':'#eda100'):sorted.map(o=>o.active?'#2a78d6':'rgba(42,120,214,.35)');
+  if(charts.offerChart)charts.offerChart.destroy();
+  charts.offerChart=new Chart(document.getElementById('offerChart'),{type:'bar',
+    data:{labels:sorted.map(o=>o.name.length>35?o.name.slice(0,33)+'…':o.name),datasets:[{data:vals,backgroundColor:colors,borderRadius:3,borderSkipped:'left'}]},
+    options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>key==='rev'||key==='margin'?' €'+Math.round(c.parsed.x).toLocaleString('nl-NL'):' '+c.parsed.x+(key==='mp'?'%':'')}}},
+      scales:{x:{ticks:{font:{size:10},color:'#898781'},grid:{color:'rgba(0,0,0,.06)'}},y:{ticks:{font:{size:9},color:'#898781'},grid:{display:false}}}}
+  });
+}
+
+function renderGeoModel(){
+  const geos=[...new Set(offerStats.map(o=>o.geo))].filter(g=>g!=='Other');
+  const models=['CPA','CPL','CPM','Other'];
+  const data={};
+  geos.forEach(g=>{data[g]={};models.forEach(m=>{data[g][m]=0;});});
+  offerStats.forEach(o=>{if(data[o.geo]&&data[o.geo][o.model]!==undefined)data[o.geo][o.model]+=o.rev;});
+  const totals=geos.map(g=>models.reduce((s,m)=>s+data[g][m],0));
+  const sorted=geos.map((g,i)=>({g,t:totals[i]})).sort((a,b)=>b.t-a.t).slice(0,12);
+  const maxVal=Math.max(...sorted.flatMap(x=>models.map(m=>data[x.g][m])));
+  document.getElementById('gmHead').innerHTML='<th>Geo</th>'+models.map(m=>`<th style="text-align:right">${m}</th>`).join('')+'<th style="text-align:right">Totaal</th>';
+  document.getElementById('gmBody').innerHTML=sorted.map(({g,t})=>`<tr>
+    <td style="font-weight:500">${g}</td>
+    ${models.map(m=>{const v=data[g][m];const a=v?Math.max(.06,v/maxVal*.85):0;return`<td class="heatcell" style="background:rgba(42,120,214,${a.toFixed(2)});color:${a>.5?'#fff':'var(--text)'}">
+      ${v>0?'€'+(v>=1000?(v/1000).toFixed(0)+'k':Math.round(v)):'—'}</td>`;}).join('')}
+    <td style="text-align:right;font-weight:500">€${(t/1000).toFixed(0)}k</td>
+  </tr>`).join('');
+}
+
+function renderNewOffers(){
+  const monthOrder=[...new Set(O18.map(r=>r.Month))].sort();
+  const seen=new Set();const newPer=[];
+  monthOrder.forEach(m=>{
+    const mo=new Set(O18.filter(r=>r.Month===m&&r.Status==='Approved').map(r=>r.OfferName));
+    const n=[...mo].filter(o=>!seen.has(o)).length;
+    newPer.push({m:m.replace(' 20','\''),n});
+    mo.forEach(o=>seen.add(o));
+  });
+  if(charts.newOffersChart)charts.newOffersChart.destroy();
+  charts.newOffersChart=new Chart(document.getElementById('newOffersChart'),{type:'bar',
+    data:{labels:newPer.map(x=>x.m),datasets:[{label:'Nieuwe offers',data:newPer.map(x=>x.n),backgroundColor:'#2a78d6',borderRadius:3,borderSkipped:'bottom'}]},
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{ticks:{font:{size:9},color:'#898781',autoSkip:true,maxRotation:0},grid:{display:false}},y:{ticks:{font:{size:10},color:'#898781'},grid:{color:'rgba(0,0,0,.06)'}}}}
+  });
+}
+
+function renderOfferTable(){
+  const q=(document.getElementById('offerSearch').value||'').toLowerCase();
+  const gf=document.getElementById('offerGeoFilt').value;
+  const mf=document.getElementById('offerModelFilt').value;
+  const sf=document.getElementById('offerStatusFilt').value;
+  const sort=document.getElementById('offerSortFilt').value;
+  let data=[...offerStats];
+  if(q)data=data.filter(o=>o.name.toLowerCase().includes(q));
+  if(gf)data=data.filter(o=>o.geo===gf);
+  if(mf)data=data.filter(o=>o.model===mf);
+  if(sf==='active')data=data.filter(o=>o.active);
+  else if(sf==='inactive')data=data.filter(o=>!o.active);
+  data.sort((a,b)=>b[sort]-a[sort]);
+  const sym={EUR:'€',USD:'$',GBP:'£'};
+  const mc={CPA:'pill-blue',CPL:'pill-green',CPM:'pill-amber',Other:'pill-grey'};
+  document.getElementById('offerTable').innerHTML=data.slice(0,40).map((o,i)=>`<tr>
+    <td style="color:var(--text-muted);font-size:11px">${i+1}</td>
+    <td style="font-size:11px;max-width:180px;white-space:normal">${o.name}</td>
+    <td><span class="pill ${mc[o.model]||'pill-grey'}">${o.model}</span></td>
+    <td style="font-weight:500">${o.geo}</td>
+    <td style="font-size:10px;color:var(--text-muted)">${o.cur}</td>
+    <td style="text-align:right">${o.conv.toLocaleString('nl-NL')}</td>
+    <td style="text-align:right;font-weight:500">${sym[o.cur]||''}${Math.round(o.rev).toLocaleString('nl-NL')}</td>
+    <td style="text-align:right">${sym[o.cur]||''}${Math.round(o.margin).toLocaleString('nl-NL')}</td>
+    <td style="text-align:right;color:${o.mp>=45?'var(--green-text)':o.mp<25?'var(--red-text)':'var(--text)'};font-weight:500">${o.mp.toFixed(1)}%</td>
+    <td style="text-align:right">${sym[o.cur]||''}${o.rpc.toFixed(1)}</td>
+    <td style="text-align:right;color:${o.rej>15?'var(--red-text)':o.rej>5?'var(--amber-text)':'var(--text-muted)'}">${o.rej.toFixed(1)}%</td>
+    <td style="text-align:right">${o.pubs}</td>
+    <td style="text-align:right">${o.months}</td>
+    <td><span class="pill ${o.active?'pill-green':'pill-grey'}">${o.active?'Actief':'Inactief'}</span></td>
+  </tr>`).join('');
+}
+
+function renderInsights(){
+  const total=offerStats.reduce((s,o)=>s+o.rev,0);
+  const inactive=offerStats.filter(o=>!o.active&&o.rev>5000);
+  const highMargin=offerStats.filter(o=>o.mp>=50&&o.conv>=20);
+  const highRej=offerStats.filter(o=>o.rej>25&&o.conv>=20);
+  let html='';
+  if(inactive.length)html+=`<div class="insight amber"><strong>Inactieve topoffers:</strong> ${inactive.slice(0,3).map(o=>`${o.name} (€${Math.round(o.rev).toLocaleString('nl-NL')})`).join(', ')} zijn gestopt. Overweeg opvolging of heractivatie.</div>`;
+  if(highMargin.length)html+=`<div class="insight green"><strong>Hoge margin offers (≥50%):</strong> ${highMargin.slice(0,4).map(o=>`${o.name} (${o.mp.toFixed(0)}%)`).join(', ')}. Prioriteit om op te schalen.</div>`;
+  if(highRej.length)html+=`<div class="insight red"><strong>Hoge rejection bij offers:</strong> ${highRej.slice(0,3).map(o=>`${o.name} (${o.rej.toFixed(0)}% rej)`).join(', ')}. Check traffic kwaliteit of adverteerder vereisten.</div>`;
+  const top5=offerStats.slice(0,5).reduce((s,o)=>s+o.rev,0)/total*100;
+  if(top5>30)html+=`<div class="insight red"><strong>Concentratierisico:</strong> Top 5 offers = ${top5.toFixed(0)}% van alle revenue. Diversificatie aanbevolen.</div>`;
+  document.getElementById('insightsDiv').innerHTML=html||'<div style="font-size:12px;color:var(--text-muted)">Geen specifieke aandachtspunten gevonden.</div>';
+}
+</script>
+</body></html>

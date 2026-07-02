@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Campaign Matching — TAC Dashboard</title>
+<link rel="manifest" href="manifest.json">
+<link rel="stylesheet" href="shared.css">
+<style>
+.match-card { background: var(--surface); border: 0.5px solid var(--border); border-radius: 12px; padding: 16px; margin-bottom: 10px; display: grid; grid-template-columns: 1fr auto; gap: 16px; align-items: start; }
+.match-card:hover { border-color: var(--accent); }
+.match-name { font-size: 13px; font-weight: 500; margin-bottom: 4px; }
+.match-meta { font-size: 11px; color: var(--text-muted); }
+.match-right { text-align: right; }
+.score-num { font-size: 24px; font-weight: 600; }
+.score-label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .05em; }
+.score-bar-wrap { width: 80px; height: 5px; background: var(--border-strong); border-radius: 3px; overflow: hidden; margin: 4px 0 6px auto; }
+.score-bar-fill { height: 100%; border-radius: 3px; }
+.match-reasons { font-size: 11px; color: var(--text-sec); margin-top: 6px; }
+.match-reasons span { display: inline-block; background: var(--surface2); border-radius: 4px; padding: 2px 7px; margin: 2px; border: 0.5px solid var(--border-strong); }
+.match-reasons span.hit { background: var(--green-bg); color: var(--green-text); border-color: var(--green); }
+.match-reasons span.warn { background: var(--amber-bg); color: var(--amber-text); border-color: var(--amber); }
+.campaign-panel { background: var(--surface); border: 0.5px solid var(--border); border-radius: 12px; padding: 20px; margin-bottom: 20px; }
+.campaign-panel-title { font-size: 14px; font-weight: 500; margin-bottom: 14px; display: flex; align-items: center; gap: 8px; }
+.empty-match { text-align: center; padding: 40px 24px; color: var(--text-muted); font-size: 13px; background: var(--surface); border: 0.5px solid var(--border); border-radius: 12px; }
+.segment { background: var(--surface2); border-radius: 8px; padding: 12px 14px; margin-bottom: 10px; }
+.segment-label { font-size: 11px; font-weight: 500; color: var(--text-muted); text-transform: uppercase; letter-spacing: .05em; margin-bottom: 8px; }
+.quick-offer { background: var(--surface); border: 0.5px solid var(--border); border-radius: 8px; padding: 10px 12px; cursor: pointer; transition: border-color 0.12s; margin-bottom: 6px; }
+.quick-offer:hover, .quick-offer.selected { border-color: var(--accent); background: var(--accent-bg); }
+.quick-offer-name { font-size: 12px; font-weight: 500; }
+.quick-offer-meta { font-size: 10px; color: var(--text-muted); margin-top: 2px; }
+.tab-panels > div { display: none; } .tab-panels > div.active { display: block; }
+</style>
+</head>
+<body>
+
+<aside class="sidebar">
+  <div class="sidebar-logo">
+    <div class="logo-main">TAC Media</div>
+    <div class="logo-sub">Performance Dashboard</div>
+  </div>
+  <nav id="mainNav"></nav>
+  <div class="sidebar-bottom">v2.0 · Campaign Matching</div>
+</aside>
+
+<div class="main-content">
+<div class="page-header">
+  <span class="page-title">Campaign Matching</span>
+  <div class="page-actions">
+    <span id="matchCount" style="font-size:12px;color:var(--text-muted)"></span>
+  </div>
+</div>
+
+<div class="content">
+
+<div class="grid2" style="align-items:start">
+
+  <!-- LEFT: Campaign configurator -->
+  <div>
+    <div class="campaign-panel">
+      <div class="campaign-panel-title">🎯 Campagne configureren</div>
+
+      <div class="tabs" id="campModeTabs">
+        <button class="tab active" onclick="setCampMode('manual',this)">Handmatig</button>
+        <button class="tab" onclick="setCampMode('offer',this)">Uit bestaande offers</button>
+        <button class="tab" onclick="setCampMode('prospect',this)">Uit adverteerder prospects</button>
+      </div>
+
+      <!-- Manual mode -->
+      <div id="modeManual">
+        <div class="form-row">
+          <div class="form-group"><label>Campagne naam</label><input type="text" id="cName" placeholder="bijv. Leon Casino DE CPA"></div>
+          <div class="form-group"><label>Adverteerder</label><input type="text" id="cAdvertiser" placeholder="bijv. Leon Casino"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>Vertical</label>
+            <select id="cVertical">
+              <option value="">— selecteer —</option>
+              <option>iGaming</option><option>Leadgen</option><option>Dating</option>
+              <option>Finance</option><option>eCommerce</option><option>Health</option><option>Software</option><option>Other</option>
+            </select>
+          </div>
+          <div class="form-group"><label>Pricing model</label>
+            <select id="cModel"><option value="">— selecteer —</option>
+              <option>CPA</option><option>CPL</option><option>CPM</option><option>CPS</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-group" style="margin-bottom:10px"><label>Target geo's</label>
+          <div class="chip-group" id="cGeoChips"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>Payout publisher</label><input type="text" id="cPayout" placeholder="bijv. €70 CPA"></div>
+          <div class="form-group"><label>Min. volume verwachting</label><input type="text" id="cVolume" placeholder="bijv. 100/mnd"></div>
+        </div>
+        <div class="form-group" style="margin-bottom:12px"><label>Verboden traffic types</label>
+          <div class="chip-group" id="cExcludeChips"></div>
+        </div>
+      </div>
+
+      <!-- From existing offers -->
+      <div id="modeOffer" style="display:none">
+        <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px">Selecteer een bestaand Offer18 offer als basis:</div>
+        <div id="quickOfferList"></div>
+      </div>
+
+      <!-- From advertiser prospects -->
+      <div id="modeProspect" style="display:none">
+        <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px">Selecteer een adverteerder prospect om te matchen:</div>
+        <div id="prospectOfferList"></div>
+      </div>
+
+      <button class="btn btn-primary" onclick="runMatch()" style="width:100%;margin-top:4px;justify-content:center">
+        ⟷ Match publishers
+      </button>
+    </div>
+
+    <!-- MATCH EXPLANATION -->
+    <div class="segment">
+      <div class="segment-label">Hoe werkt de match-score?</div>
+      <div style="font-size:12px;color:var(--text-sec);line-height:1.7">
+        <strong>Geo overlap</strong> — publisher dekt de campagne geo's (+40 punten max)<br>
+        <strong>Vertical match</strong> — publisher werkt in dezelfde niche (+25 punten)<br>
+        <strong>Model match</strong> — CPA/CPL/CPM past bij publisher's voorkeur (+15 punten)<br>
+        <strong>Volume fit</strong> — publisher volume past bij campagne verwachting (+10 punten)<br>
+        <strong>Traffic type</strong> — geen verboden traffic types (+10 punten)<br>
+        <strong>Status bonus</strong> — Active publisher = +5 bonus
+      </div>
+    </div>
+  </div>
+
+  <!-- RIGHT: Match results -->
+  <div>
+    <div style="font-size:11px;font-weight:500;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px">Match resultaten</div>
+    <div id="matchResults"><div class="empty-match">Configureer een campagne en klik op "Match publishers".</div></div>
+  </div>
+
+</div>
+
+<!-- HISTORY -->
+<div class="section-label">Eerdere matches</div>
+<div id="matchHistory"><div style="font-size:12px;color:var(--text-muted)">Nog geen matches opgeslagen.</div></div>
+
+</div>
+</div>
+
+<div class="toast" id="toast"></div>
+<script src="nav.js"></script>
+<script>
+renderNav('matching');
+
+const GEOS = ['NL','DE','UK','BR','ES','IT','FR','AU','CA','US','PT','BE','MX','AT','CH','SE','NO','PL','DK','FI','NZ','IE','CZ','HU','AR','CL','GR','CO','ZA','IN'];
+const TRAFFIC_TYPES = ['Email','Social','SEO','SEM/PPC','Native','Display','Push','Influencer','Incentive','SMS','Content','Programmatic'];
+
+let campMode = 'manual';
+let selectedOffer = null;
+let matchHistory = loadData('matchHistory') || [];
+
+function loadData(key) {
+  try { return JSON.parse(localStorage.getItem('tac_crm_' + key) || 'null'); } catch { return null; }
+}
+function saveData(key, val) {
+  try { localStorage.setItem('tac_crm_' + key, JSON.stringify(val)); } catch {}
+}
+function showToast(msg, dur=2200) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), dur);
+}
+
+// Build chips
+function buildChips(id, items, selected=[]) {
+  document.getElementById(id).innerHTML = items.map(item =>
+    `<span class="chip ${selected.includes(item)?'selected':''}" onclick="this.classList.toggle('selected')">${item}</span>`
+  ).join('');
+}
+buildChips('cGeoChips', GEOS);
+buildChips('cExcludeChips', TRAFFIC_TYPES);
+
+function getChips(id) {
+  return [...document.querySelectorAll(`#${id} .chip.selected`)].map(c => c.textContent.trim());
+}
+
+function setCampMode(mode, el) {
+  campMode = mode;
+  document.querySelectorAll('#campModeTabs .tab').forEach(t=>t.classList.remove('active'));
+  if(el) el.classList.add('active');
+  document.getElementById('modeManual').style.display = mode==='manual' ? '' : 'none';
+  document.getElementById('modeOffer').style.display = mode==='offer' ? '' : 'none';
+  document.getElementById('modeProspect').style.display = mode==='prospect' ? '' : 'none';
+  if (mode==='offer') renderQuickOffers();
+  if (mode==='prospect') renderProspectOffers();
+}
+
+// Built-in TAC top offers for quick selection
+const TAC_OFFERS = [
+  {name:'Leon Casino BR CPA',advertiser:'Leon Casino',vertical:'iGaming',model:'CPA',geos:['BR'],payout:'$25–30 CPA',rej:12.0},
+  {name:'Leon Casino DE CPA',advertiser:'Leon Casino',vertical:'iGaming',model:'CPA',geos:['DE'],payout:'$90 CPA',rej:30.8},
+  {name:'TWIN Casino DE CPA',advertiser:'TWIN Casino',vertical:'iGaming',model:'CPA',geos:['DE'],payout:'$95 CPA',rej:19.9},
+  {name:'MrPunter DE CPA',advertiser:'MrPunter',vertical:'iGaming',model:'CPA',geos:['DE'],payout:'€70 CPA',rej:10.5},
+  {name:'Slott Casino DE CPA',advertiser:'Slott Casino',vertical:'iGaming',model:'CPA',geos:['DE'],payout:'$88 CPA',rej:15.0},
+  {name:'Melbet BR CPA',advertiser:'Melbet',vertical:'iGaming',model:'CPA',geos:['BR'],payout:'$25 CPA',rej:29.8},
+  {name:'FreeSpinGenius IT CPL',advertiser:'FreeSpinGenius',vertical:'iGaming',model:'CPL',geos:['IT'],payout:'€1.64/lead',rej:4.4},
+  {name:'FreeSpinGenius UK CPL',advertiser:'FreeSpinGenius',vertical:'iGaming',model:'CPL',geos:['UK'],payout:'€1.92/lead',rej:2.9},
+  {name:'Superfreebingo UK CPL',advertiser:'Superfreebingo',vertical:'iGaming',model:'CPL',geos:['UK'],payout:'£2.49/lead',rej:0.0},
+  {name:'123Casinos NZ CPL',advertiser:'123Casinos',vertical:'iGaming',model:'CPL',geos:['NZ'],payout:'€2/lead',rej:0.0},
+  {name:'Registreer NL CPL',advertiser:'Registreer',vertical:'iGaming',model:'CPL',geos:['NL'],payout:'€1.02/lead',rej:0.0},
+  {name:'Verisure BE-NL CPL',advertiser:'Verisure',vertical:'Leadgen',model:'CPL',geos:['NL','BE'],payout:'€30/lead',rej:0.0},
+  {name:'On that ass multi-geo',advertiser:'On that ass',vertical:'Dating',model:'CPL',geos:['NL','DE','FR','UK','SE'],payout:'€5.14/lead',rej:0.0},
+  {name:'Philips DE CPL',advertiser:'Philips',vertical:'Leadgen',model:'CPL',geos:['DE'],payout:'€0.70/lead',rej:0.0},
+  {name:'WinMaker DE CPA',advertiser:'WinMaker',vertical:'iGaming',model:'CPA',geos:['DE'],payout:'€70 CPA',rej:0.0},
+  {name:'RollingSlots DE CPA',advertiser:'RollingSlots',vertical:'iGaming',model:'CPA',geos:['DE'],payout:'€70 CPA',rej:0.0},
+  {name:'MafiaCasino ES CPA',advertiser:'MafiaCasino',vertical:'iGaming',model:'CPA',geos:['ES'],payout:'€50 CPA',rej:0.0},
+  {name:'mybest.bet BR CPA',advertiser:'mybest.bet',vertical:'iGaming',model:'CPA',geos:['BR'],payout:'€20 CPA',rej:0.0},
+  {name:'Flagman BR CPA',advertiser:'Flagman',vertical:'iGaming',model:'CPA',geos:['BR'],payout:'$25 CPA',rej:0.0},
+  {name:'Altroconsumo IT CPA',advertiser:'Altroconsumo',vertical:'Leadgen',model:'CPA',geos:['IT'],payout:'€33 CPA',rej:3.6},
+];
+
+function renderQuickOffers() {
+  document.getElementById('quickOfferList').innerHTML = TAC_OFFERS.map((o,i) => `
+    <div class="quick-offer ${selectedOffer===i?'selected':''}" onclick="selectOffer(${i})">
+      <div class="quick-offer-name">${o.name}</div>
+      <div class="quick-offer-meta">${o.geos.join(', ')} · ${o.model} · ${o.payout} · rej: ${o.rej}%</div>
+    </div>
+  `).join('');
+}
+
+function selectOffer(i) {
+  selectedOffer = i;
+  renderQuickOffers();
+}
+
+function renderProspectOffers() {
+  const advs = loadData('advertisers') || [];
+  if (!advs.length) {
+    document.getElementById('prospectOfferList').innerHTML = '<div style="font-size:12px;color:var(--text-muted)">Geen adverteerder prospects gevonden. Voeg ze toe via de <a href="prospects.html" style="color:var(--accent)">Prospects & CRM</a> module.</div>';
+    return;
+  }
+  document.getElementById('prospectOfferList').innerHTML = advs.map((a,i) => `
+    <div class="quick-offer ${selectedOffer==='adv_'+a.id?'selected':''}" onclick="selectProspectAdv('adv_${a.id}')">
+      <div class="quick-offer-name">${a.name}</div>
+      <div class="quick-offer-meta">${(a.geos||[]).join(', ')||a.country||'—'} · ${a.vertical||'—'} · ${a.model||'—'}</div>
+    </div>
+  `).join('');
+}
+
+function selectProspectAdv(id) {
+  selectedOffer = id;
+  renderProspectOffers();
+}
+
+// MATCHING ENGINE
+function getCampaignConfig() {
+  if (campMode === 'manual') {
+    return {
+      name: document.getElementById('cName').value || 'Unnamed campaign',
+      advertiser: document.getElementById('cAdvertiser').value,
+      vertical: document.getElementById('cVertical').value,
+      model: document.getElementById('cModel').value,
+      geos: getChips('cGeoChips'),
+      excludeTraffic: getChips('cExcludeChips'),
+      payout: document.getElementById('cPayout').value,
+      volume: document.getElementById('cVolume').value,
+    };
+  } else if (campMode === 'offer' && selectedOffer !== null) {
+    const o = TAC_OFFERS[selectedOffer];
+    return { name: o.name, advertiser: o.advertiser, vertical: o.vertical, model: o.model, geos: o.geos, excludeTraffic: [], payout: o.payout, volume: '' };
+  } else if (campMode === 'prospect' && selectedOffer) {
+    const id = selectedOffer.replace('adv_','');
+    const advs = loadData('advertisers') || [];
+    const a = advs.find(x=>x.id===id);
+    if (!a) return null;
+    return { name: a.name, advertiser: a.name, vertical: a.vertical||'', model: a.model||'', geos: a.geos||[], excludeTraffic: [], payout: '', volume: '' };
+  }
+  return null;
+}
+
+function scorePublisher(pub, camp) {
+  let score = 0;
+  const reasons = [];
+  const warnings = [];
+
+  // Geo overlap (max 40)
+  if (camp.geos.length > 0 && pub.geos.length > 0) {
+    const overlap = pub.geos.filter(g => camp.geos.includes(g));
+    if (overlap.length > 0) {
+      const pts = Math.round(Math.min(40, (overlap.length / camp.geos.length) * 40));
+      score += pts;
+      reasons.push(`Geo match: ${overlap.join(', ')} (+${pts})`);
+    } else {
+      warnings.push('Geen geo overlap');
+    }
+  } else if (pub.geos.length === 0 && camp.geos.length > 0) {
+    warnings.push('Geen geo info');
+  } else {
+    score += 20; // no geo specified — partial credit
+  }
+
+  // Vertical (max 25)
+  if (camp.vertical && pub.verticals && pub.verticals.includes(camp.vertical)) {
+    score += 25;
+    reasons.push(`Vertical match: ${camp.vertical} (+25)`);
+  } else if (camp.vertical && pub.verticals && pub.verticals.length > 0) {
+    warnings.push(`Vertical mismatch (pub: ${pub.verticals.join(', ')})`);
+  } else if (!camp.vertical || !pub.verticals || !pub.verticals.length) {
+    score += 10; // unknown — neutral
+  }
+
+  // Model (max 15)
+  if (camp.model && pub.model) {
+    if (pub.model === camp.model) { score += 15; reasons.push(`Model match: ${camp.model} (+15)`); }
+    else if (pub.model === 'Hybrid') { score += 10; reasons.push('Hybrid model (+10)'); }
+    else { warnings.push(`Model mismatch (pub: ${pub.model})`); }
+  } else {
+    score += 7;
+  }
+
+  // Traffic type exclusion (max 10)
+  if (camp.excludeTraffic.length > 0 && pub.trafficTypes && pub.trafficTypes.length > 0) {
+    const forbidden = pub.trafficTypes.filter(t => camp.excludeTraffic.includes(t));
+    if (forbidden.length > 0) {
+      warnings.push(`Verboden traffic: ${forbidden.join(', ')}`);
+    } else {
+      score += 10;
+      reasons.push('Traffic type OK (+10)');
+    }
+  } else {
+    score += 5;
+  }
+
+  // Status bonus
+  if (pub.status === 'Active') { score += 5; reasons.push('Active publisher (+5)'); }
+  else if (pub.status === 'Declined') { score -= 20; warnings.push('Publisher is Declined'); }
+
+  // Volume fit (heuristic) — max 10
+  if (pub.volume && camp.volume) {
+    score += 5;
+    reasons.push('Volume info beschikbaar (+5)');
+  }
+
+  return { score: Math.max(0, Math.min(100, score)), reasons, warnings };
+}
+
+function runMatch() {
+  const camp = getCampaignConfig();
+  if (!camp) { showToast('Selecteer eerst een campagne'); return; }
+  if (camp.geos.length === 0 && campMode === 'manual') { showToast('Selecteer minimaal één geo'); return; }
+
+  const publishers = loadData('publishers') || [];
+  if (!publishers.length) {
+    document.getElementById('matchResults').innerHTML = `
+      <div class="empty-match">
+        <div style="font-size:24px;margin-bottom:8px">👥</div>
+        Geen publishers gevonden. Voeg publishers toe via <a href="prospects.html" style="color:var(--accent)">Prospects & CRM</a>.
+      </div>`;
+    return;
+  }
+
+  const results = publishers
+    .map(pub => ({ pub, ...scorePublisher(pub, camp) }))
+    .sort((a, b) => b.score - a.score);
+
+  const scoreColor = s => s >= 75 ? '#1baf7a' : s >= 50 ? '#eda100' : '#e34948';
+  const scoreLabel = s => s >= 75 ? 'Sterke match' : s >= 50 ? 'Redelijke match' : s >= 25 ? 'Zwakke match' : 'Geen match';
+
+  document.getElementById('matchCount').textContent = `${results.length} publishers gescreend`;
+
+  document.getElementById('matchResults').innerHTML = results.map(r => `
+    <div class="match-card">
+      <div>
+        <div class="match-name">${r.pub.name}</div>
+        <div class="match-meta">
+          ${(r.pub.geos||[]).slice(0,5).join(' · ')}${(r.pub.geos||[]).length>5?' +'+((r.pub.geos||[]).length-5):''}
+          ${r.pub.model ? ' · ' + r.pub.model : ''}
+          ${r.pub.status ? ' · ' + r.pub.status : ''}
+        </div>
+        <div class="match-reasons">
+          ${r.reasons.map(rr=>`<span class="hit">${rr}</span>`).join('')}
+          ${r.warnings.map(w=>`<span class="warn">⚠ ${w}</span>`).join('')}
+        </div>
+        ${r.pub.targetingNotes ? `<div style="font-size:11px;color:var(--text-sec);margin-top:6px">📝 ${r.pub.targetingNotes}</div>` : ''}
+      </div>
+      <div class="match-right">
+        <div class="score-num" style="color:${scoreColor(r.score)}">${r.score}</div>
+        <div class="score-label">${scoreLabel(r.score)}</div>
+        <div class="score-bar-wrap">
+          <div class="score-bar-fill" style="width:${r.score}%;background:${scoreColor(r.score)}"></div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:4px;margin-top:6px">
+          <button class="btn btn-sm btn-primary" onclick="saveMatch('${r.pub.id}','${camp.name}',${r.score})">Opslaan</button>
+          <a href="prospects.html" class="btn btn-sm">Profiel</a>
+        </div>
+      </div>
+    </div>
+  `).join('');
+}
+
+function saveMatch(pubId, campName, score) {
+  const pub = (loadData('publishers')||[]).find(p=>p.id===pubId);
+  if (!pub) return;
+  matchHistory.unshift({ id: Date.now().toString(36), pubId, pubName: pub.name, campName, score, date: new Date().toLocaleDateString('nl-NL') });
+  if (matchHistory.length > 50) matchHistory = matchHistory.slice(0,50);
+  saveData('matchHistory', matchHistory);
+  renderHistory();
+  showToast('Match opgeslagen ✓');
+}
+
+function renderHistory() {
+  const el = document.getElementById('matchHistory');
+  if (!matchHistory.length) { el.innerHTML = '<div style="font-size:12px;color:var(--text-muted)">Nog geen matches opgeslagen.</div>'; return; }
+  const scoreColor = s => s >= 75 ? 'pill-green' : s >= 50 ? 'pill-amber' : 'pill-red';
+  el.innerHTML = `<div class="card" style="padding:0"><div class="tw"><table>
+    <thead><tr><th>Publisher</th><th>Campagne</th><th>Score</th><th>Datum</th><th></th></tr></thead>
+    <tbody>${matchHistory.slice(0,20).map(m=>`<tr>
+      <td style="font-weight:500">${m.pubName}</td>
+      <td style="font-size:12px">${m.campName}</td>
+      <td><span class="pill ${scoreColor(m.score)}">${m.score}/100</span></td>
+      <td style="font-size:11px;color:var(--text-muted)">${m.date}</td>
+      <td><button class="btn btn-sm" onclick="deleteMatch('${m.id}')" style="color:var(--red-text)">✕</button></td>
+    </tr>`).join('')}</tbody>
+  </table></div></div>`;
+}
+
+function deleteMatch(id) {
+  matchHistory = matchHistory.filter(m=>m.id!==id);
+  saveData('matchHistory', matchHistory);
+  renderHistory();
+}
+
+renderHistory();
+</script>
+</body>
+</html>

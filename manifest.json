@@ -1,0 +1,15 @@
+{
+  "name": "TAC Media Dashboard",
+  "short_name": "TAC Dashboard",
+  "description": "TAC Media performance dashboard — Offer18 & Stats Affiliation",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f5f4f0",
+  "theme_color": "#0b0b0b",
+  "orientation": "landscape",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
